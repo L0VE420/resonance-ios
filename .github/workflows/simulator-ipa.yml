@@ -1,0 +1,58 @@
+name: Build simulator IPA
+
+on:
+  workflow_dispatch:        # manual "Run workflow" button
+  push:
+    branches: [main]
+
+jobs:
+  simulator-ipa:
+    runs-on: macos-14
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 16
+        run: sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build for simulator (no signing)
+        run: |
+          set -euo pipefail
+          xcodebuild \
+            -project Resonance.xcodeproj \
+            -scheme Resonance \
+            -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
+
+      - name: Zip the .app into an .ipa
+        run: |
+          set -euo pipefail
+          APP_PATH="$(find build/Build/Products -name 'Resonance.app' -type d | head -n 1)"
+          if [ -z "$APP_PATH" ]; then
+            echo "Resonance.app not found under build/Build/Products"
+            find build/Build/Products -maxdepth 3 -type d
+            exit 1
+          fi
+          echo "Packaging $APP_PATH into Resonance-simulator.ipa"
+          mkdir -p build/ipa
+          cd "$(dirname "$APP_PATH")"
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$(basename "$APP_PATH")" \
+            "$OLDPWD/build/ipa/Resonance-simulator.ipa"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Resonance-simulator-ipa
+          path: build/ipa/Resonance-simulator.ipa
+          if-no-files-found: error
