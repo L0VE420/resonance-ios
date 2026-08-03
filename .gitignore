@@ -1,0 +1,22 @@
+# Apple/Xcode
+*.xcodeproj
+*.xcworkspace
+DerivedData/
+.build/
+xcuserdata/
+*.ipa
+
+# XcodeGen
+.project.yml.cache
+
+# Local signing/configuration
+Config/Local.xcconfig
+*.mobileprovision
+*.p12
+
+# Windows/macOS
+.DS_Store
+Thumbs.db
+
+# Reference binary remains local
+*.apk

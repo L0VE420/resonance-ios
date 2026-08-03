@@ -1,0 +1,92 @@
+{
+  "contents": {
+    "twoColumnBrowseResultsRenderer": {
+      "tabs": [
+        {
+          "tabRenderer": {
+            "content": {
+              "sectionListRenderer": {
+                "contents": [
+                  {
+                    "musicCarouselShelfRenderer": {
+                      "header": {
+                        "musicCarouselShelfBasicHeaderRenderer": {
+                          "title": {
+                            "runs": [{ "text": "Quick picks" }]
+                          }
+                        }
+                      },
+                      "contents": [
+                        {
+                          "musicTwoRowItemRenderer": {
+                            "title": { "runs": [{ "text": "Echoes" }] },
+                            "subtitle": { "runs": [{ "text": "Pink Floyd • 1971 • Song" }] },
+                            "thumbnailRenderer": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    { "url": "//i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg", "width": 120, "height": 90 }
+                                  ]
+                                }
+                              }
+                            },
+                            "navigationEndpoint": {
+                              "watchEndpoint": { "videoId": "dQw4w9WgXcQ", "watchEndpointMusicSupportedConfigs": { "watchEndpointMusicConfig": { "musicVideoType": "MUSIC_VIDEO_TYPE_OMV" } } }
+                            }
+                          }
+                        },
+                        {
+                          "musicTwoRowItemRenderer": {
+                            "title": { "runs": [{ "text": "Time" }] },
+                            "subtitle": { "runs": [{ "text": "Pink Floyd • 1971 • Song" }] },
+                            "thumbnailRenderer": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    { "url": "https://i.ytimg.com/vi/2jkW2TAUVXw/hqdefault.jpg", "width": 120, "height": 90 }
+                                  ]
+                                }
+                              }
+                            },
+                            "navigationEndpoint": {
+                              "watchEndpoint": { "videoId": "2jkW2TAUVXw" }
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  },
+                  {
+                    "musicShelfRenderer": {
+                      "title": { "runs": [{ "text": "Albums" }] },
+                      "contents": [
+                        {
+                          "musicResponsiveListItemRenderer": {
+                            "thumbnail": {
+                              "musicThumbnailRenderer": {
+                                "thumbnail": {
+                                  "thumbnails": [
+                                    { "url": "https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg" }
+                                  ]
+                                }
+                              }
+                            },
+                            "flexColumns": [
+                              { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Meddle" }] } } },
+                              { "musicResponsiveListItemFlexColumnRenderer": { "text": { "runs": [{ "text": "Pink Floyd • 1971" }] } } }
+                            ],
+                            "navigationEndpoint": { "browseEndpoint": { "browseId": "MPREb_AbCdEfGhIj" } }
+                          }
+                        }
+                      ]
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        }
+      ]
+    }
+  }
+}

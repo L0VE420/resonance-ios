@@ -1,0 +1,94 @@
+name: Build IPA
+
+on:
+  workflow_dispatch:        # manual "Run workflow" button
+  push:
+    tags: ["v*"]            # any git tag starting with v
+
+jobs:
+  ipa:
+    runs-on: macos-14
+    timeout-minutes: 45
+    permissions:
+      contents: write        # needed for the artifact upload + optional tag
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 16
+        run: sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Apply signing identities
+        env:
+          CERT_P12:     ${{ secrets.RESONANCE_CERT_P12 }}
+          CERT_PWD:     ${{ secrets.RESONANCE_CERT_PASSWORD }}
+          PROFILE_B64:  ${{ secrets.RESONANCE_PROFILE }}
+          KC_PWD:       ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN=resonance.keychain
+          security create-keychain -p "$KC_PWD" "$KEYCHAIN"
+          security set-keychain-settings -lut 3600 "$KEYCHAIN"
+          security unlock-keychain -p "$KC_PWD" "$KEYCHAIN"
+          echo "$CERT_P12" | base64 --decode > cert.p12
+          security import cert.p12 -k "$KEYCHAIN" -P "$CERT_PWD" \
+                   -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -k "$KC_PWD" "$KEYCHAIN"
+          security list-keychain -d user -s "$KEYCHAIN" $(security list-keychain -d user | tr -d '"')
+          mkdir -p profiles
+          echo "$PROFILE_B64" | base64 --decode > profiles/Resonance.mobileprovision
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Archive
+        env:
+          TEAM_ID: ${{ secrets.RESONANCE_TEAM_ID }}
+        run: |
+          xcodebuild \
+            -project Resonance.xcodeproj \
+            -scheme Resonance \
+            -archivePath build/Resonance.xcarchive \
+            -destination 'generic/platform=iOS' \
+            archive \
+            DEVELOPMENT_TEAM="$TEAM_ID" \
+            CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGN_STYLE=Manual \
+            PROVISIONING_PROFILE_SPECIFIER=Resonance
+
+      - name: Write export options
+        env:
+          TEAM_ID: ${{ secrets.RESONANCE_TEAM_ID }}
+        run: |
+          mkdir -p build
+          cat > build/ExportOptions.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <plist version="1.0">
+          <dict>
+            <key>method</key>
+            <string>development</string>
+            <key>teamID</key>
+            <string>${TEAM_ID}</string>
+            <key>signingStyle</key>
+            <string>manual</string>
+            <key>compileBitcode</key>
+            <false/>
+          </dict>
+          </plist>
+          PLIST
+
+      - name: Export IPA
+        run: |
+          xcodebuild -exportArchive \
+            -archivePath build/Resonance.xcarchive \
+            -exportPath build/ipa \
+            -exportOptionsPlist build/ExportOptions.plist
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Resonance-ipa
+          path: build/ipa/Resonance.ipa
+          if-no-files-found: error
