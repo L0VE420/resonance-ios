@@ -32,7 +32,6 @@ actor YouTubeStreamResolver: StreamResolving {
     private let client: InnerTubeClient
     private let http: any HTTPTransport
     private let signatureSolver: JavaScriptSignatureSolver
-    private var cachedScript: CachedScript?
 
     init(client: InnerTubeClient, http: any HTTPTransport, signatureSolver: JavaScriptSignatureSolver? = nil) {
         self.client = client
@@ -122,7 +121,7 @@ actor YouTubeStreamResolver: StreamResolving {
         var s: String?
     }
 
-    fileprivate struct ExtractedChallenge: Sendable {
+    struct ExtractedChallenge: Sendable {
         let baseURL: URL
         let videoID: String?
         let signature: String?

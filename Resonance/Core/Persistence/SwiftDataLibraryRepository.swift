@@ -8,7 +8,7 @@ protocol HistoryRecording: AnyObject {
 }
 
 @MainActor
-final class SwiftDataLibraryRepository: ObservableObject, HistoryRecording {
+final class SwiftDataLibraryRepository: @preconcurrency ObservableObject, HistoryRecording {
     let objectWillChange = ObservableObjectPublisher()
 
     private let modelContainer: ModelContainer
