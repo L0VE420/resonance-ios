@@ -8,24 +8,20 @@ on:
 jobs:
   simulator-ipa:
     runs-on: macos-14
-    timeout-minutes: 30
+    timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select an available Xcode
+      - name: Install the latest available Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Confirm selected toolchain
         run: |
-          set -euo pipefail
-          if [ -d "/Applications/Xcode_16.0.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_16.0.app/Contents/Developer
-            echo "Using Xcode 16"
-          elif [ -d "/Applications/Xcode_15.4.app" ]; then
-            sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer
-            echo "Using Xcode 15.4"
-          else
-            echo "Using default Xcode ($(xcodebuild -version))"
-          fi
+          xcode-select -p
           xcodebuild -version
-          sudo xcodebuild -runFirstLaunch || true
+          swift --version
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -47,20 +43,26 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             build
 
-      - name: Zip the .app into an .ipa
+      - name: Locate the built .app
+        id: locate
         run: |
-          set -euo pipefail
           APP_PATH="$(find build/Build/Products -name 'Resonance.app' -type d | head -n 1)"
           if [ -z "$APP_PATH" ]; then
             echo "Resonance.app not found under build/Build/Products"
-            find build/Build/Products -maxdepth 3 -type d
+            find build/Build/Products -maxdepth 3 -type d || true
             exit 1
           fi
-          echo "Packaging $APP_PATH into Resonance-simulator.ipa"
+          echo "app_path=$APP_PATH" >> "$GITHUB_OUTPUT"
+          echo "Found: $APP_PATH"
+
+      - name: Zip the .app into an .ipa
+        run: |
+          set -euo pipefail
+          APP_PATH="${{ steps.locate.outputs.app_path }}"
           mkdir -p build/ipa
           cd "$(dirname "$APP_PATH")"
           /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$(basename "$APP_PATH")" \
-            "$OLDPWD/build/ipa/Resonance-simulator.ipa"
+            "$GITHUB_WORKSPACE/build/ipa/Resonance-simulator.ipa"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
