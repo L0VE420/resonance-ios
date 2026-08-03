@@ -8,7 +8,7 @@ actor JavaScriptSignatureSolver {
 
     init() {}
 
-    func solve(challenge: StreamResolver.ExtractedChallenge, videoID: String) async throws -> (signature: String, n: String) {
+    func solve(challenge: YouTubeStreamResolver.ExtractedChallenge, videoID: String) async throws -> (signature: String, n: String) {
         _ = videoID
         throw StreamError.signatureChallenge("Live solver integration pending")
     }

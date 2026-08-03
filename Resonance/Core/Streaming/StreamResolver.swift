@@ -99,7 +99,15 @@ actor YouTubeStreamResolver: StreamResolving {
         if challenge.n == nil {
             throw StreamError.signatureChallenge("Missing n parameter")
         }
-        let solved = try await signatureSolver.solve(challenge: challenge, videoID: challenge.videoID ?? "")
+        let extracted = ExtractedChallenge(
+            baseURL: challenge.baseURL,
+            videoID: challenge.videoID,
+            signature: challenge.signature,
+            n: challenge.n,
+            signatureQueryName: challenge.signatureQueryName,
+            nQueryName: challenge.nQueryName
+        )
+        let solved = try await signatureSolver.solve(challenge: extracted, videoID: challenge.videoID ?? "")
         guard var components = URLComponents(url: challenge.baseURL, resolvingAgainstBaseURL: false) else {
             throw StreamError.noPlayableFormat
         }
