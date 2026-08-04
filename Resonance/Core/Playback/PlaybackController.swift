@@ -1,7 +1,7 @@
-import AVFoundation
+@preconcurrency import AVFoundation
 import Combine
 import Foundation
-import MediaPlayer
+@preconcurrency import MediaPlayer
 import UIKit
 
 enum PlaybackState: Equatable, Sendable {
