@@ -23,10 +23,10 @@ final class PlaybackController: ObservableObject {
     private let resolver: any StreamResolving
     private weak var historyRecorder: (any HistoryRecording)?
     private var player: AVPlayer?
-    private var timeObserver: Any?
-    private var endObserver: NSObjectProtocol?
-    private var interruptionObserver: NSObjectProtocol?
-    private var routeChangeObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var timeObserver: Any?
+    private nonisolated(unsafe) var endObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var interruptionObserver: NSObjectProtocol?
+    private nonisolated(unsafe) var routeChangeObserver: NSObjectProtocol?
     private var hasReportedCurrent = false
 
     init(resolver: any StreamResolving, historyRecorder: (any HistoryRecording)?) {
@@ -163,10 +163,8 @@ final class PlaybackController: ObservableObject {
             queue: .main
         ) { [weak self] _ in
             Task { @MainActor in
-                guard let self else { return }
-                if AVAudioSession.sharedInstance().currentRoute.outputs.contains(where: { $0.portType == .headphones }) {
-                    self.player?.pause()
-                }
+                guard AVAudioSession.sharedInstance().currentRoute.outputs.contains(where: { $0.portType == .headphones }) else { return }
+                self?.player?.pause()
             }
         }
     }
