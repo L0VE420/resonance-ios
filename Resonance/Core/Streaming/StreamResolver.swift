@@ -85,7 +85,7 @@ actor YouTubeStreamResolver: StreamResolving {
         }
         if progressive != nil { return progressive }
         let adaptive = formats
-            .filter { supported.contains($0.mime) && (format: $0, hasCipher: $0.signatureCipher != nil, hasSignature: $0.signature != nil) }
+            .filter { supported.contains($0.mime) && $0.needsSignature }
             .sorted { ($0.bitrate ?? 0) < ($1.bitrate ?? 0) }
         return adaptive.last ?? formats.first { supported.contains($0.mime) }
     }

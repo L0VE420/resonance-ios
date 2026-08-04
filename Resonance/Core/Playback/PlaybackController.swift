@@ -162,9 +162,11 @@ final class PlaybackController: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
-            guard let self else { return }
-            if AVAudioSession.sharedInstance().currentRoute.outputs.contains(where: { $0.portType == .headphones }) {
-                self.player?.pause()
+            Task { @MainActor in
+                guard let self else { return }
+                if AVAudioSession.sharedInstance().currentRoute.outputs.contains(where: { $0.portType == .headphones }) {
+                    self.player?.pause()
+                }
             }
         }
     }
