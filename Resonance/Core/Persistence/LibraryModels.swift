@@ -26,7 +26,7 @@ final class SavedTrack {
             videoID: videoID,
             title: title,
             artists: artistText.isEmpty ? [] : [Artist(id: artistText.lowercased(), name: artistText)],
-            album: albumTitle.map { AlbumSummary(id: "local:\(videoID)", title: $0) },
+            album: albumTitle.map { AlbumSummary(id: "local:\(videoID)", title: $0, browseID: nil) },
             duration: duration,
             artworkURL: artworkURLString.flatMap(URL.init(string:))
         )
@@ -79,7 +79,7 @@ final class LocalPlaylistEntry {
             videoID: videoID,
             title: title,
             artists: artistText.isEmpty ? [] : [Artist(id: artistText.lowercased(), name: artistText)],
-            album: albumTitle.map { AlbumSummary(id: "local:\(videoID)", title: $0) },
+            album: albumTitle.map { AlbumSummary(id: "local:\(videoID)", title: $0, browseID: nil) },
             duration: duration,
             artworkURL: artworkURLString.flatMap(URL.init(string:))
         )

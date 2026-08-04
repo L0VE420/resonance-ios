@@ -2,7 +2,8 @@ import SwiftUI
 
 struct HomeView: View {
     @EnvironmentObject private var container: AppContainer
-    @State private var phase: HomeViewModel.Phase = .idle
+    private typealias Phase = AsyncStateView<CatalogPage, HomeScroll>.Phase
+    @State private var phase: Phase = .idle
 
     var body: some View {
         NavigationStack {

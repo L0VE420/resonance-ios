@@ -46,9 +46,7 @@ struct CatalogItemDetailSheet: View {
         }
     }
 
-    private enum AsyncState: Equatable {
-        case idle, loading, loaded(CatalogPage), error(String)
-    }
+    private typealias AsyncState = AsyncStateView<CatalogPage, DetailList>.Phase
 }
 
 private struct DetailList: View {
