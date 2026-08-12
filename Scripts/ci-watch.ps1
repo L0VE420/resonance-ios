@@ -5,10 +5,10 @@
     logs on failure.
 
 .DESCRIPTION
-    Wraps `gh` so the typical "run workflow → wait → fix errors" loop
-    becomes a single command. On success, optionally downloads the IPA
-    artifact. On failure, prints the relevant slice of the build log so
-    you can paste it back to Claude.
+    Wraps gh so the typical run workflow -> wait -> fix errors loop becomes
+    a single command. On success, optionally downloads the IPA artifact.
+    On failure, prints the relevant slice of the build log so you can
+    paste it back to Claude.
 
 .PARAMETER Workflow
     Workflow file name (default: "sideload-ipa.yml").
@@ -28,8 +28,8 @@
     .\Scripts\ci-watch.ps1 -Workflow simulator-ipa.yml
 
 .NOTES
-    Requires: GitHub CLI (gh) authenticated with `gh auth login` and
-    scope `repo` + `workflow`.
+    Requires: GitHub CLI (gh) authenticated with gh auth login and scope
+    repo + workflow. Alternatively, set $env:GITHUB_TOKEN before running.
 #>
 
 [CmdletBinding()]
@@ -43,42 +43,77 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
+# -------------------------------------------------------------------------
+# PowerShell 5.1 quirk: every native gh invocation that returns a non-zero
+# exit code wraps it in a NativeCommandError that aborts the script under
+# $ErrorActionPreference='Stop'. Wrap them in Invoke-Gh which:
+#   * relaxes ErrorActionPreference for the duration of the call
+#   * captures stdout+stderr into a string
+#   * sets $script:LAST_GH_EXIT so callers can branch on it
+# -------------------------------------------------------------------------
+function Invoke-Gh {
+    param([Parameter(ValueFromRemainingArguments=$true)][string[]]$Args)
+    $prev = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        $output = & gh @Args 2>&1 | Out-String
+    } catch {
+        $output = $_.Exception.Message
+    } finally {
+        $ErrorActionPreference = $prev
+    }
+    $script:LAST_GH_EXIT = $LASTEXITCODE
+    return $output
+}
+
 function Test-Gh {
     if (-not (Get-Command gh -ErrorAction SilentlyContinue)) {
-        Write-Host "✗ gh CLI not found. Install from https://cli.github.com" -ForegroundColor Red
+        Write-Host "[X] gh CLI not found. Install from https://cli.github.com" -ForegroundColor Red
         exit 1
     }
-    $status = gh auth status 2>&1
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "✗ gh is not authenticated. Run: gh auth login" -ForegroundColor Red
-        Write-Host $status
+    if ($env:GITHUB_TOKEN -or $env:GH_TOKEN) {
+        # gh auto-picks up either token env var.
+        return
+    }
+    $null = Invoke-Gh auth status
+    if ($script:LAST_GH_EXIT -ne 0) {
+        Write-Host "[X] gh is not authenticated. Either:" -ForegroundColor Red
+        Write-Host "    gh auth login    (scopes: repo, workflow)" -ForegroundColor Red
+        Write-Host "    `$env:GITHUB_TOKEN = 'ghp_...'; .\Scripts\ci-watch.ps1" -ForegroundColor Red
         exit 2
     }
 }
 
-function Convert-Signing([string]$s) {
-    if ($s -eq 'ad-hoc') { return 'adhoc' }
-    return $s
-}
-
 function Get-LatestRunFor([string]$wf) {
-    gh run list --workflow $wf --limit 1 --json databaseId,status,conclusion,displayTitle,createdAt,headBranch,event,url | ConvertFrom-Json
+    $raw = Invoke-Gh run list --workflow $wf --limit 1 --json databaseId,status,conclusion,displayTitle,createdAt,headBranch,event,url
+    if ($script:LAST_GH_EXIT -ne 0) { return $null }
+    try { return $raw | ConvertFrom-Json } catch { return $null }
 }
 
 function Watch-Run([long]$runId) {
-    Write-Host "▶ Watching run $runId …" -ForegroundColor Cyan
+    Write-Host "[i] Watching run $runId ..." -ForegroundColor Cyan
     while ($true) {
-        $run = gh run view $runId --json status,conclusion,displayTitle,url,headBranch 2>&1 | ConvertFrom-Json
+        $raw = Invoke-Gh run view $runId --json status,conclusion,displayTitle,url,headBranch
+        $run = $null
+        if ($script:LAST_GH_EXIT -eq 0) {
+            try { $run = $raw | ConvertFrom-Json } catch {}
+        }
+        if (-not $run -or -not $run.status) {
+            Write-Host "  . (no response from gh yet) -- waiting 15 s" -ForegroundColor DarkGray
+            Start-Sleep -Seconds 15
+            continue
+        }
         switch ($run.status) {
             'completed' {
-                Write-Host "✓ Run finished: $($run.conclusion)" -ForegroundColor $(if ($run.conclusion -eq 'success') {'Green'} else {'Red'})
+                $color = if ($run.conclusion -eq 'success') { 'Green' } else { 'Red' }
+                Write-Host "[=] Run finished: $($run.conclusion)" -ForegroundColor $color
                 return $run
             }
-            'in_progress'  { Write-Host "  · in_progress — waiting 15 s" -ForegroundColor DarkGray }
-            'queued'       { Write-Host "  · queued      — waiting 15 s" -ForegroundColor DarkGray }
-            'waiting'      { Write-Host "  · waiting     — waiting 15 s" -ForegroundColor DarkGray }
-            'pending'      { Write-Host "  · pending     — waiting 15 s" -ForegroundColor DarkGray }
-            default        { Write-Host "  · $($run.status) — waiting 15 s" -ForegroundColor DarkGray }
+            'in_progress' { Write-Host "  . in_progress -- waiting 15 s" -ForegroundColor DarkGray }
+            'queued'      { Write-Host "  . queued      -- waiting 15 s" -ForegroundColor DarkGray }
+            'waiting'     { Write-Host "  . waiting     -- waiting 15 s" -ForegroundColor DarkGray }
+            'pending'     { Write-Host "  . pending     -- waiting 15 s" -ForegroundColor DarkGray }
+            default       { Write-Host "  . $($run.status) -- waiting 15 s" -ForegroundColor DarkGray }
         }
         Start-Sleep -Seconds 15
     }
@@ -89,60 +124,74 @@ function Show-FailureSummary([long]$runId) {
     Write-Host "=== Failure summary ===" -ForegroundColor Red
     Write-Host ""
 
-    # Step-level summary first — easy to scan.
-    Write-Host "▶ Steps:" -ForegroundColor Yellow
-    gh run view $runId --json jobs,name,conclusion,steps --jq '.jobs[] | "  [\(.conclusion)] \(.name)"' 2>&1 |
-        ForEach-Object { Write-Host $_ }
+    Write-Host "[i] Steps:" -ForegroundColor Yellow
+    $stepsRaw = Invoke-Gh run view $runId --json jobs,name,conclusion,steps --jq '.jobs[] | "  [\(.conclusion)] \(.name)]"'
+    Write-Host $stepsRaw
 
     Write-Host ""
-    Write-Host "▶ Failed-step logs (most recent 250 lines each):" -ForegroundColor Yellow
-    $jobs = gh api "runs/$runId/jobs" 2>&1 | ConvertFrom-Json
+    Write-Host "[i] Failed-step logs (most recent 250 lines each):" -ForegroundColor Yellow
+    $jobsRaw = Invoke-Gh api "runs/$runId/jobs"
+    if ($script:LAST_GH_EXIT -ne 0) {
+        Write-Host "(could not list jobs: $jobsRaw)" -ForegroundColor DarkYellow
+        return
+    }
+    try { $jobs = $jobsRaw | ConvertFrom-Json } catch { return }
     foreach ($job in $jobs.jobs) {
         if ($job.conclusion -in 'failure','cancelled','timed_out') {
             Write-Host ""
             Write-Host "----- $($job.name) -----" -ForegroundColor Magenta
-            gh run view $runId --job $job.databaseId --log 2>&1 |
-                Select-Object -Last 250 |
-                ForEach-Object { Write-Host $_ }
+            $log = Invoke-Gh run view $runId --job $job.databaseId --log
+            if ($script:LAST_GH_EXIT -ne 0) {
+                Write-Host "(could not fetch job log)" -ForegroundColor DarkYellow
+                continue
+            }
+            $log -split "`n" | Select-Object -Last 250 | ForEach-Object { Write-Host $_ }
         }
     }
 }
 
 function Copy-Artifact([long]$runId, [string]$dest) {
     New-Item -ItemType Directory -Force -Path $dest | Out-Null
-    Write-Host "▶ Downloading artifact(s) to $dest" -ForegroundColor Cyan
-    gh run download $runId --dir $dest 2>&1 | ForEach-Object { Write-Host "  $_" }
-    $ipas = Get-ChildItem -Path $dest -Recurse -Filter '*.ipa' -ErrorAction SilentlyContinue
-    if ($ipas) {
-        Write-Host ""
-        Write-Host "✓ IPA ready:" -ForegroundColor Green
-        $ipas | ForEach-Object { Write-Host "    $($_.FullName)" }
-    } else {
+    Write-Host "[i] Downloading artifact(s) to $dest" -ForegroundColor Cyan
+    $dlOut = Invoke-Gh run download $runId --dir $dest
+    if ($script:LAST_GH_EXIT -ne 0) {
+        Write-Host "(artifact download failed)" -ForegroundColor DarkYellow
+        return
+    }
+    $found = $false
+    Get-ChildItem -Path $dest -Recurse -Filter '*.ipa' -ErrorAction SilentlyContinue | ForEach-Object {
+        if (-not $found) {
+            Write-Host ""
+            Write-Host "[OK] IPA ready:" -ForegroundColor Green
+            $found = $true
+        }
+        Write-Host "    $($_.FullName)"
+    }
+    if (-not $found) {
         Write-Host "(no .ipa found in artifacts)" -ForegroundColor DarkYellow
     }
 }
 
 # ----- main ------------------------------------------------------------
 Test-Gh
-$signingArg = Convert-Signing $Signing
+$signingArg = if ($Signing -eq 'ad-hoc') { 'adhoc' } else { $Signing }
 
-Write-Host "▶ Triggering workflow '$Workflow' (signing=$signingArg)" -ForegroundColor Cyan
-$trigger = gh workflow run $Workflow --ref $(git rev-parse --abbrev-ref HEAD) -f signing=$signingArg 2>&1
-if ($LASTEXITCODE -ne 0) {
+Write-Host "[i] Triggering workflow '$Workflow' (signing=$signingArg)" -ForegroundColor Cyan
+$branch = git rev-parse --abbrev-ref HEAD 2>$null
+$trigger = Invoke-Gh workflow run $Workflow --ref $branch -f signing=$signingArg
+if ($script:LAST_GH_EXIT -ne 0) {
     Write-Host $trigger
     exit 3
 }
 
-# gh workflow run returns immediately; give it a moment to register, then
-# pull the run id of the most recent invocation of this workflow.
 Start-Sleep -Seconds 5
 $run = Get-LatestRunFor $Workflow
 if (-not $run) {
-    Write-Host "✗ No run found for $Workflow after trigger" -ForegroundColor Red
+    Write-Host "[X] No run found for $Workflow after trigger" -ForegroundColor Red
     exit 4
 }
 $runId = $run.databaseId
-Write-Host "▶ Run URL: $($run.url)" -ForegroundColor Cyan
+Write-Host "[i] Run URL: $($run.url)" -ForegroundColor Cyan
 
 $final = Watch-Run $runId
 
@@ -153,6 +202,6 @@ if ($final.conclusion -eq 'success') {
 
 Show-FailureSummary $runId
 Write-Host ""
-Write-Host "→ Paste the output above (or just the failing step's tail)" -ForegroundColor Cyan
-Write-Host "  back to Claude to start the auto-fix loop." -ForegroundColor Cyan
+Write-Host "-> Paste the output above (or just the failing step's tail)" -ForegroundColor Cyan
+Write-Host "   back to Claude to start the auto-fix loop." -ForegroundColor Cyan
 exit 10
