@@ -1,0 +1,161 @@
+name: Auto-fix failed IPA build
+
+# Fires automatically when `Build IPA` (or any sibling IPA workflow)
+# finishes with failure / cancelled / timed_out. Reads the failing step's
+# log, hands it to Claude Code, and opens a PR with a proposed fix.
+#
+# Required secrets:
+#   ANTHROPIC_API_KEY     — Claude Code API key
+#   CLAUDE_CODE_OAUTH_TOKEN  (alternative) Claude Code OAuth token
+#
+# Optional:
+#   AUTO_FIX_BOT_TOKEN    — PAT with `contents:write` + `pull-requests:write`
+#                           (defaults to the workflow's GITHUB_TOKEN, which
+#                            is fine for forks-on-same-org but not for
+#                            forks-of-public-repos due to token scope).
+#
+# This file is the auto-fix half of the self-healing loop documented in
+# Docs/SIDELOAD.md#self-healing-loop.
+
+on:
+  workflow_run:
+    workflows:
+      - "Build IPA"
+      - "Build simulator IPA"
+      - "iOS build & test"
+    types:
+      - completed
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  auto-fix:
+    # Skip on success and on forks (where GITHUB_TOKEN is read-only).
+    if: >
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.head_repository.fork == false
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout the failed run's repo state
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_branch }}
+          repository: ${{ github.event.workflow_run.head_repository.full_name }}
+          fetch-depth: 1
+
+      - name: Find the failing job and download its log
+        id: grab
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RUN_ID:   ${{ github.event.workflow_run.id }}
+        run: |
+          set -euxo pipefail
+          # Locate the first job that failed in the workflow run.
+          FAILED_JOB_ID="$(gh api "runs/$RUN_ID/jobs" \
+            --jq '.jobs[] | select(.conclusion=="failure" or .conclusion=="cancelled" or .conclusion=="timed_out") | .databaseId' \
+            | head -n1)"
+          if [ -z "$FAILED_JOB_ID" ]; then
+            echo "No failed job found in run $RUN_ID — skipping fix."
+            exit 0
+          fi
+          echo "failed_job_id=$FAILED_JOB_ID" >> "$GITHUB_OUTPUT"
+
+          # Download the full job log (zip) and unpack the .txt inside.
+          mkdir -p build/logs
+          gh api "runs/$RUN_ID/jobs/$FAILED_JOB_ID/logs" > build/logs/job.zip
+          ( cd build/logs && unzip -o job.zip >/dev/null )
+
+          # Concatenate every log line into a single file, trimmed to the
+          # last 2 000 lines so we don't blow Claude's input budget.
+          : > build/logs/failed.log
+          for f in build/logs/*.txt; do
+            echo "=== $f ===" >> build/logs/failed.log
+            tail -n 2000 "$f" >> build/logs/failed.log
+          done
+
+          echo "Captured $(wc -l < build/logs/failed.log) log lines."
+
+      - name: Hand the log to Claude Code
+        id: claude
+        if: steps.grab.outputs.failed_job_id != ''
+        uses: anthropics/claude-code-action@v1
+        with:
+          claude_code_oauth_token: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+          anthropic_api_key:       ${{ secrets.ANTHROPIC_API_KEY }}
+          # Trigger model: best for diagnosis. Set to `sonnet` if you
+          # want a cheaper run; `opus` if diagnosis is hard.
+          model: claude-sonnet-4-5
+          # Give Claude the repo (already checked out above) plus the
+          # captured log.
+          prompt: |
+            You are running inside GitHub Actions because the
+            `Build IPA` (or sibling) workflow just failed on commit
+            `${{ github.event.workflow_run.head_sha }}`.
+
+            Your job: read the failing log at `build/logs/failed.log`,
+            identify the smallest fix that makes the build succeed,
+            apply it to the working tree, commit it on the current
+            branch with a message of the form
+              `fix(ci): <one-line description>`
+            and push.
+
+            Constraints:
+              * Stay inside the existing project layout — don't add
+                new packages, don't bump Xcode, don't change the
+                scheme unless the log demands it.
+              * If the fix would touch user-facing files (Info.plist,
+                entitlements, asset catalog), prefer fixing the
+                workflow / xcconfig / xcodegen project instead.
+              * Don't touch `Scripts/build-sideload-ipa.sh` or
+                `.github/workflows/` to "fix" the build — those are
+                correct; the fix must be in `Resonance/`, `Config/`,
+                `project.yml`, or `Config/Shared.xcconfig`.
+              * If you genuinely can't fix it from the log alone
+                (e.g. flaky network, missing secret), commit an
+                empty `fix(ci): noop` so the auto-fix workflow at
+                least closes out cleanly, and surface the gap in
+                your final message.
+
+            When you're done, print a 3-bullet summary of what you
+            changed and why. The next step opens a PR with your
+            commit.
+
+      - name: Open a PR with the proposed fix
+        if: steps.claude.outputs.conclusion == 'success' && steps.grab.outputs.failed_job_id != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euxo pipefail
+          HEAD_BRANCH="auto-fix/${{ github.event.workflow_run.head_branch }}-${{ github.run_id }}"
+          git config user.name  "auto-fix-bot"
+          git config user.email "auto-fix-bot@users.noreply.github.com"
+          # If claude already pushed, just use that; otherwise commit
+          # any remaining changes and push.
+          if ! git diff --quiet || ! git diff --cached --quiet; then
+            git checkout -b "$HEAD_BRANCH"
+            git add -A
+            git commit -m "fix(ci): automated fix for ${{ github.event.workflow_run.name }}" || true
+            git push origin "$HEAD_BRANCH"
+          fi
+
+          gh pr create \
+            --base "${{ github.event.workflow_run.head_branch }}" \
+            --head "$HEAD_BRANCH" \
+            --title "fix(ci): auto-fix for failed ${{ github.event.workflow_run.name }} (#${{ github.event.workflow_run.run_number }})" \
+            --body "$(cat <<'BODY'
+            Automated fix proposed by Claude Code in response to a
+            failed run of `${{ github.event.workflow_run.name }}`.
+
+            - Trigger run: #${{ github.event.workflow_run.run_number }}
+            - Commit: `${{ github.event.workflow_run.head_sha }}`
+            - URL: ${{ github.event.workflow_run.html_url }}
+
+            **Review the diff before merging.** The auto-fix loop is
+            best-effort; if it can't make a confident change it
+            commits a noop and explains why in the workflow log.
+            BODY
+          )" || echo "PR creation skipped (possibly no diff or duplicate)"

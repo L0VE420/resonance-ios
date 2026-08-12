@@ -127,3 +127,69 @@ slightly cleaner install experience on stock iOS.
 | TrollStore says "package not eligible"                   | The IPA's bundle ID isn't registered. TrollStore registers it automatically on first install; if it fails, try AltStore instead. |
 
 For deeper coverage of CI workflows, see `Docs/CIPIPAGUIDE.md`.
+
+## Self-healing loop
+
+The repo ships with two layers of automation so you don't have to babysit
+every build. Pick one:
+
+### Layer 1 — local scripts (no extra setup)
+
+Trigger a build, watch it, and print failure logs to your terminal:
+
+```powershell
+# Windows (PowerShell 5.1)
+.\Scripts\ci-watch.ps1 -Download           # adhoc, download IPA on success
+.\Scripts\ci-watch.ps1 -Signing development # personal-team signed
+.\Scripts\ci-watch.ps1 -Workflow ipa.yml   # any workflow file
+```
+
+```bash
+# macOS / Linux / Git Bash
+./Scripts/ci-watch.sh --download
+./Scripts/ci-watch.sh -s development
+./Scripts/ci-watch.sh -w ipa.yml
+```
+
+If you already triggered the build from the GitHub UI and just need
+the log dump, run `ci-debug.ps1` / `ci-debug.sh` instead — it grabs
+the latest failed run for a given workflow without re-triggering.
+
+Both scripts assume `gh` is installed and authenticated (`gh auth login`,
+scopes: `repo`, `workflow`).
+
+When a run fails, the script prints the failing step's last 250 log
+lines. Paste that into your chat with Claude and say "fix it" — Claude
+will read the log, propose a patch, and (with your approval) commit
+and push the fix, which triggers another build. The loop:
+
+```
+edit code → ci-watch.sh → ✗ fail → paste log → Claude edits → push
+                              ↑                                   ↓
+                              └────────────── ci-watch.sh ←───────┘
+```
+
+### Layer 2 — fully automatic (Claude in CI)
+
+Add this secret on your fork:
+
+| Secret                  | Value                                  |
+| ----------------------- | -------------------------------------- |
+| `ANTHROPIC_API_KEY`     | Your Anthropic API key                 |
+
+The `.github/workflows/auto-fix.yml` workflow fires automatically when
+`Build IPA`, `Build simulator IPA`, or `iOS build & test` fails. It:
+
+1. Downloads the failing job's log zip via the GitHub API.
+2. Checks out the same commit + branch.
+3. Runs Claude Code with the log as input and the constraint "smallest
+   fix, don't touch user-facing files unless necessary."
+4. Opens a PR with the proposed fix.
+
+You get a PR link in the Actions run output. Review the diff, merge if
+it looks right, and the next push triggers the build again. If Claude
+isn't confident, it commits an empty `fix(ci): noop` and explains in
+the run log.
+
+To disable the auto-fix later, delete `.github/workflows/auto-fix.yml`
+or remove the `ANTHROPIC_API_KEY` secret.

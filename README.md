@@ -58,3 +58,18 @@ AltStore / Sideloadly (which re-sign with your free Apple ID
 on-device).
 
 See `Docs/SIDELOAD.md` for the full guide.
+
+## Self-healing build loop
+
+Two layers:
+
+- **Local** — `Scripts/ci-watch.ps1` / `Scripts/ci-watch.sh` trigger
+  the workflow, poll until done, download the IPA on success, and dump
+  the failing log on failure. Paste the dump into Claude and the loop
+  repeats.
+- **Fully automatic** — `.github/workflows/auto-fix.yml` runs Claude
+  Code whenever `Build IPA` (or the simulator / unit-test workflows)
+  fails. Requires an `ANTHROPIC_API_KEY` secret. Opens a PR with the
+  proposed fix.
+
+See `Docs/SIDELOAD.md#self-healing-loop` for details.
