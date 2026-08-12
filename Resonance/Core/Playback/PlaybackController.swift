@@ -146,13 +146,12 @@ final class PlaybackController: ObservableObject {
             // resulting primitives (UInt, Bool) cross the boundary safely.
             guard let info = notification.userInfo,
                   let rawType = info[AVAudioSessionInterruptionTypeKey] as? UInt,
-                  let type = AVAudioSession.InterruptionType(rawValue: rawType),
-                  let shouldResume = (info[AVAudioSessionInterruptionOptionKey] as? UInt)
-                    .map({ AVAudioSession.InterruptionOptions(rawValue: $0).contains(.shouldResume) }) ?? false
+                  let type = AVAudioSession.InterruptionType(rawValue: rawType)
             else { return }
+            let shouldResume = (info[AVAudioSessionInterruptionOptionKey] as? UInt)
+                .map { AVAudioSession.InterruptionOptions(rawValue: $0).contains(.shouldResume) } ?? false
             let isBegan = type == .began
             MainActor.assumeIsolated {
-                _ = self // silence unused-self-lint when only one branch references self
                 if isBegan {
                     self?.player?.pause()
                 } else if type == .ended && shouldResume {
