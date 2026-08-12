@@ -29,8 +29,12 @@ targets:
       path: Config/Info.plist
     entitlements:
       path: Config/Resonance.entitlements
+    # Apply the shared xcconfig to every configuration the project uses.
+    # XcodeGen's default configs are Debug and Release; the file's `//`
+    # comments are valid xcconfig syntax as of Xcode 16.
     configFiles:
-      base: Config/Shared.xcconfig
+      Debug: Config/Shared.xcconfig
+      Release: Config/Shared.xcconfig
     settings:
       base:
         PRODUCT_NAME: Resonance
@@ -52,7 +56,8 @@ targets:
     dependencies:
       - target: Resonance
     configFiles:
-      base: Config/Shared.xcconfig
+      Debug: Config/Shared.xcconfig
+      Release: Config/Shared.xcconfig
     settings:
       base:
         # Append ".tests" to whatever bundle ID the app was configured

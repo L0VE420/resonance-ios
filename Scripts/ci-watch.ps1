@@ -184,14 +184,22 @@ if ($script:LAST_GH_EXIT -ne 0) {
     exit 3
 }
 
-Start-Sleep -Seconds 5
-$run = Get-LatestRunFor $Workflow
-if (-not $run) {
-    Write-Host "[X] No run found for $Workflow after trigger" -ForegroundColor Red
+# gh workflow run prints the run URL on stdout (something like
+# https://github.com/owner/repo/actions/runs/<id>). Prefer that over a
+# list filter because two workflows in this repo share the display name
+# "Build IPA" and the filter would be ambiguous.
+$runUrl = ($trigger -split "`n" | Where-Object { $_ -match 'https?://.*actions/runs/' } | Select-Object -First 1)
+if (-not $runUrl) {
+    Write-Host "[X] gh workflow run did not print a run URL. Output was:" -ForegroundColor Red
+    Write-Host $trigger
     exit 4
 }
-$runId = $run.databaseId
-Write-Host "[i] Run URL: $($run.url)" -ForegroundColor Cyan
+if ($runUrl -match '/runs/(\d+)') { $runId = [long]$Matches[1] } else { $runId = 0 }
+if ($runId -le 0) {
+    Write-Host "[X] Could not parse run id from URL: $runUrl" -ForegroundColor Red
+    exit 4
+}
+Write-Host "[i] Run URL: $runUrl" -ForegroundColor Cyan
 
 $final = Watch-Run $runId
 
