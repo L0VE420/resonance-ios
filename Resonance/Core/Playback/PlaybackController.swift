@@ -140,22 +140,23 @@ final class PlaybackController: ObservableObject {
             queue: .main
         ) { [weak self] notification in
             // The closure runs on .main (queue argument above) but Swift
-            // 6 treats the closure type as Sendable rather than @MainActor,
-            // so we have to assert the isolation explicitly.
+            // 6 treats the closure type as Sendable rather than @MainActor.
+            // Notification is not Sendable, so we have to extract every
+            // value we need BEFORE asserting main-actor isolation; the
+            // resulting primitives (UInt, Bool) cross the boundary safely.
+            guard let info = notification.userInfo,
+                  let rawType = info[AVAudioSessionInterruptionTypeKey] as? UInt,
+                  let type = AVAudioSession.InterruptionType(rawValue: rawType),
+                  let shouldResume = (info[AVAudioSessionInterruptionOptionKey] as? UInt)
+                    .map({ AVAudioSession.InterruptionOptions(rawValue: $0).contains(.shouldResume) }) ?? false
+            else { return }
+            let isBegan = type == .began
             MainActor.assumeIsolated {
-                guard let info = notification.userInfo,
-                      let rawType = info[AVAudioSessionInterruptionTypeKey] as? UInt,
-                      let type = AVAudioSession.InterruptionType(rawValue: rawType) else { return }
-                switch type {
-                case .began:
+                _ = self // silence unused-self-lint when only one branch references self
+                if isBegan {
                     self?.player?.pause()
-                case .ended:
-                    if let options = info[AVAudioSessionInterruptionOptionKey] as? UInt,
-                       AVAudioSession.InterruptionOptions(rawValue: options).contains(.shouldResume) {
-                        self?.player?.play()
-                    }
-                @unknown default:
-                    break
+                } else if type == .ended && shouldResume {
+                    self?.player?.play()
                 }
             }
         }
@@ -165,8 +166,11 @@ final class PlaybackController: ObservableObject {
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            // queue: .main is registered above; check the route there
+            // before crossing the MainActor boundary.
+            let headphonesPlugged = AVAudioSession.sharedInstance().currentRoute.outputs.contains { $0.portType == .headphones }
             MainActor.assumeIsolated {
-                guard AVAudioSession.sharedInstance().currentRoute.outputs.contains(where: { $0.portType == .headphones }) else { return }
+                guard headphonesPlugged else { return }
                 self?.player?.pause()
             }
         }
