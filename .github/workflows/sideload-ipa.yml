@@ -1,0 +1,185 @@
+# Builds Resonance.ipa on a free GitHub-hosted macOS runner.
+#
+# Two modes (selectable in the "Run workflow" dialog):
+#
+#   adhoc       — ad-hoc signed (`-` identity). NO Apple Developer
+#                 account, NO certificates, NO secrets required. The
+#                 resulting IPA installs on jailbroken devices via
+#                 TrollStore / AppSync, and on stock iOS via AltStore /
+#                 Sideloadly once you point them at the file (they
+#                 re-sign with your Apple ID locally).
+#
+#   development — signed with your Apple ID via the secrets listed
+#                 below. Use this if you want a personal-team IPA that
+#                 you can hand out to other testers without jailbreaks.
+#
+# Required secrets for `development` mode:
+#   APPLE_TEAM_ID          — 10-character Team ID
+#   APPLE_BUNDLE_ID        — e.g. dev.yourname.resonance
+#   APPLE_DEVELOPMENT_TEAM — same as APPLE_TEAM_ID (legacy name)
+#
+# Reference: SoulStream's build-ipa.yml — the same pattern, adapted for
+# the Resonance project (scheme name, paths, project structure).
+
+name: Build IPA
+
+on:
+  workflow_dispatch:
+    inputs:
+      signing:
+        description: 'Signing mode'
+        required: true
+        type: choice
+        default: 'adhoc'
+        options:
+          - adhoc
+          - development
+
+permissions:
+  contents: read
+
+jobs:
+  build-ipa:
+    name: Build (${{ inputs.signing }})
+    runs-on: macos-14
+    timeout-minutes: 60
+
+    env:
+      SCHEME: Resonance
+      CONFIG: Release
+      PROJECT: Resonance.xcodeproj
+      ARCHIVE_PATH: build/Resonance.xcarchive
+      EXPORT_PATH: build/ResonanceExport
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Show macOS / Xcode versions
+        run: |
+          sw_vers
+          xcodebuild -version
+          ls /Applications | grep -i xcode || true
+
+      - name: Pick Xcode 16
+        run: |
+          # Pin to Xcode 16+ for iOS 18 SDK support.
+          for v in 16.0 16.1 16.2 16.3 16.4 16.5; do
+            p="/Applications/Xcode_${v}.app"
+            if [ -d "$p" ]; then
+              sudo xcode-select -s "$p"
+              break
+            fi
+          done
+          sudo xcode-select -p
+          xcodebuild -version
+
+      - name: Install XcodeGen
+        run: |
+          if ! command -v xcodegen &>/dev/null; then
+            brew install xcodegen
+          fi
+          xcodegen --version
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      # ----- Build (signed for development with Apple ID) -------------
+      - name: Build — Apple Development signing
+        if: github.event.inputs.signing == 'development'
+        env:
+          APPLE_TEAM_ID:          ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_BUNDLE_ID:        ${{ secrets.APPLE_BUNDLE_ID }}
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+        run: |
+          set -euxo pipefail
+          TEAM="${APPLE_DEVELOPMENT_TEAM:-${APPLE_TEAM_ID}}"
+          BUNDLE="${APPLE_BUNDLE_ID:-com.example.resonance}"
+          if [ -z "$TEAM" ]; then
+            echo "::error::APPLE_DEVELOPMENT_TEAM (or APPLE_TEAM_ID) secret is required for development signing." >&2
+            exit 1
+          fi
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIG" \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            CODE_SIGN_STYLE=Automatic \
+            DEVELOPMENT_TEAM="$TEAM" \
+            PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE" \
+            archive
+
+      - name: Export — Apple Development
+        if: github.event.inputs.signing == 'development'
+        env:
+          APPLE_TEAM_ID:          ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_DEVELOPMENT_TEAM: ${{ secrets.APPLE_DEVELOPMENT_TEAM }}
+        run: |
+          TEAM="${APPLE_DEVELOPMENT_TEAM:-${APPLE_TEAM_ID}}"
+          cat > ExportOptions.plist <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>development</string>
+              <key>teamID</key>
+              <string>${TEAM}</string>
+              <key>uploadSymbols</key>
+              <false/>
+              <key>signingStyle</key>
+              <string>automatic</string>
+          </dict>
+          </plist>
+          EOF
+          xcodebuild -exportArchive \
+            -archivePath "$ARCHIVE_PATH" \
+            -exportPath "$EXPORT_PATH" \
+            -exportOptionsPlist ExportOptions.plist
+          ls -lh "$EXPORT_PATH"
+
+      # ----- Build (ad-hoc — no Apple ID required, jailbreak-friendly) -
+      - name: Build — ad-hoc signing
+        if: github.event.inputs.signing == 'adhoc'
+        run: |
+          set -euxo pipefail
+          xcodebuild \
+            -project "$PROJECT" \
+            -scheme "$SCHEME" \
+            -configuration "$CONFIG" \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$ARCHIVE_PATH" \
+            CODE_SIGN_IDENTITY="-" \
+            CODE_SIGNING_REQUIRED=YES \
+            CODE_SIGNING_ALLOWED=YES \
+            AD_HOC_CODE_SIGNING_ALLOWED=YES \
+            CODE_SIGN_STYLE=Manual \
+            PROVISIONING_PROFILE_SPECIFIER="" \
+            DEVELOPMENT_TEAM="" \
+            archive
+
+      - name: Package ad-hoc IPA
+        if: github.event.inputs.signing == 'adhoc'
+        run: |
+          # xcodebuild's archive doesn't export an IPA without a proper profile,
+          # so we package the .app directly with a manual codesign pass.
+          set -euxo pipefail
+          APP="$ARCHIVE_PATH/Products/Applications/$SCHEME.app"
+          ls -la "$APP"
+          # Strip any leftover signing and re-sign ad-hoc.
+          codesign --force --deep --sign - "$APP"
+          mkdir -p "$EXPORT_PATH/Payload"
+          cp -R "$APP" "$EXPORT_PATH/Payload/"
+          # Zip the Payload/ directory in a subshell so $EXPORT_PATH can
+          # stay an absolute-ish path and we don't need to track cwd.
+          ( cd "$EXPORT_PATH" && zip -qr Resonance.ipa Payload )
+          ls -lh "$EXPORT_PATH/Resonance.ipa"
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Resonance-${{ inputs.signing }}.ipa
+          path: build/ResonanceExport/Resonance.ipa
+          if-no-files-found: error
+          retention-days: 14

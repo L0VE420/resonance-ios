@@ -1,11 +1,57 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <!--
+        ad-hoc export — short-lived self-signed sideload.
+
+        The archive must already carry an ad-hoc signature
+        (`xcodebuild archive CODE_SIGN_IDENTITY="-" ...`). The resulting
+        .ipa installs through Xcode → Devices, Apple Configurator 2, or
+        `ios-deploy` without any Apple ID, and survives until the signing
+        certificate is revoked (typically 90 days).
+
+        For long-lived personal sideloads (AltStore / Sideloadly) use
+        build/export/sideload.plist instead.
+    -->
     <key>method</key>
     <string>ad-hoc</string>
+
+    <!-- Don't touch the bundle ID / entitlements during export. -->
     <key>signingStyle</key>
     <string>manual</string>
+    <key>destination</key>
+    <string>export</string>
+
+    <!-- Bitcode was removed in Xcode 14; keep these explicit so older
+         Xcode versions on the build host don't surprise us. -->
     <key>compileBitcode</key>
     <false/>
+    <key>uploadBitcode</key>
+    <false/>
+    <key>uploadSymbols</key>
+    <false/>
+
+    <!-- Strip Swift symbols before packaging so the final .ipa is small
+         enough to transfer over the network and AltStore can re-sign it
+         without tripping over a stripped __LINKEDIT. -->
+    <key>stripSwiftSymbols</key>
+    <true/>
+
+    <!-- Don't embed on-demand resources — the inner-tube resolver, lyrics
+         service, and player reach the network at runtime, not via ODR. -->
+    <key>embedOnDemandResources</key>
+    <false/>
+
+    <!-- iCloud & App-Group containers aren't used; explicit false keeps
+         Xcode from auto-adding them when the entitlements file changes. -->
+    <key>iCloudContainerEnvironment</key>
+    <string>Development</string>
+
+    <key>manifest</key>
+    <dict>
+        <key>appURL</key>
+        <string></string>
+    </dict>
 </dict>
 </plist>

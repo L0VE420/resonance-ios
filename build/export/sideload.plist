@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+        Sideload export — signed with your *personal* Apple ID so
+        AltStore / Sideloadly can install the resulting .ipa onto any
+        device tied to that Apple ID. The certificate is good for 7
+        days, after which AltStore re-signs it transparently on-device.
+
+        Pre-flight:
+          1. Open project.yml → set RESONANCE_DEVELOPMENT_TEAM to your
+             10-character Team ID (or export it as an env var before
+             running `Scripts/build-sideload-ipa.sh`).
+          2. Add the device you intend to install on to your Apple ID's
+             device list (Xcode → Settings → Accounts → Manage Certificates
+             → � → "Register a Device" is the easiest path).
+          3. Run the script and hand the produced .ipa to AltStore or
+             Sideloadly.
+    -->
+    <key>method</key>
+    <string>development</string>
+
+    <!-- Inherit team + bundle ID from the archive. -->
+    <key>signingStyle</key>
+    <string>automatic</string>
+
+    <!-- Pin the export to a single device if you want the IPA to refuse
+         to launch elsewhere. Leaving it blank matches every registered
+         device on the team, which is what AltStore expects. -->
+    <key>destination</key>
+    <string>export</string>
+
+    <key>compileBitcode</key>
+    <false/>
+    <key>uploadBitcode</key>
+    <false/>
+    <key>uploadSymbols</key>
+    <false/>
+    <key>stripSwiftSymbols</key>
+    <true/>
+    <key>embedOnDemandResources</key>
+    <false/>
+
+    <!-- Tell xcodebuild to provision the bundle for every registered
+         device on the team. AltStore re-signs on-device so the embedded
+         provisioning profile doesn't need to match the install target. -->
+    <key>provisioningProfiles</key>
+    <dict/>
+
+    <key>iCloudContainerEnvironment</key>
+    <string>Development</string>
+
+    <key>manifest</key>
+    <dict>
+        <key>appURL</key>
+        <string></string>
+    </dict>
+</dict>
+</plist>

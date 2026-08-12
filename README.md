@@ -47,3 +47,14 @@ Before device distribution, replace `com.example.resonance` and the empty develo
 Resonance uses YouTube Music's private InnerTube endpoints and a player-script resolver. These interfaces are undocumented, may change without notice, and may be subject to YouTube terms and content restrictions. The app does not bypass DRM. This MVP is intended for authorized personal testing through local signing or TestFlight, not as an App Store-ready product.
 
 See `Docs/PORTING.md` for architecture, scope, and macOS verification steps.
+
+## Sideloading without a Mac
+
+You can build an `.ipa` entirely on GitHub Actions — no Apple Developer
+account required. The `Build IPA` workflow (Actions tab → Run workflow)
+defaults to **ad-hoc signing**, which produces an IPA installable on
+jailbroken devices via TrollStore / AppSync, and on stock iOS via
+AltStore / Sideloadly (which re-sign with your free Apple ID
+on-device).
+
+See `Docs/SIDELOAD.md` for the full guide.

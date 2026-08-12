@@ -29,14 +29,20 @@ targets:
       path: Config/Info.plist
     entitlements:
       path: Config/Resonance.entitlements
+    configFiles:
+      base: Config/Shared.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.resonance
         PRODUCT_NAME: Resonance
-        MARKETING_VERSION: 0.1.0
-        CURRENT_PROJECT_VERSION: 1
+        # Sideload-friendly defaults: when `RESONANCE_DEVELOPMENT_TEAM`
+        # is unset the archive still exports via the ad-hoc export
+        # options plist (see build/export/ad-hoc.plist).
         CODE_SIGN_STYLE: Automatic
-        DEVELOPMENT_TEAM: ""
+        CODE_SIGN_IDENTITY: "Apple Development"
+        # Modern Xcode refuses to import a Swift preview dylib into the
+        # final IPA. Forcing this off keeps the embedded preview binary
+        # from breaking AltStore's re-sign step.
+        ENABLE_PREVIEWS: NO
   ResonanceTests:
     type: bundle.unit-test
     platform: iOS
@@ -45,9 +51,14 @@ targets:
       - path: ResonanceTests
     dependencies:
       - target: Resonance
+    configFiles:
+      base: Config/Shared.xcconfig
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.example.resonance.tests
+        # Append ".tests" to whatever bundle ID the app was configured
+        # with so users who override RESONANCE_BUNDLE_ID for sideloading
+        # don't end up with a stale com.example.* test identifier.
+        PRODUCT_BUNDLE_IDENTIFIER: $(RESONANCE_BUNDLE_ID).tests
 schemes:
   Resonance:
     build:

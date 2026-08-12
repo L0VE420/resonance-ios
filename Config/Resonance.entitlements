@@ -1,5 +1,19 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Equivalent to the XcodeGen `capabilities: [BackgroundModes: [audio]]`
+  block. Mirrors the `UIBackgroundModes = [audio]` key in Info.plist so
+  iOS actually lets the app keep streaming when the user backgrounds it.
+
+  Kept empty otherwise on purpose: any other capability (push, app
+  groups, iCloud, Sign in with Apple) forces a real provisioning
+  profile and breaks ad-hoc / no-Apple-ID installs.
+-->
 <plist version="1.0">
-<dict/>
+<dict>
+    <key>com.apple.developer.background-modes</key>
+    <array>
+        <string>audio</string>
+    </array>
+</dict>
 </plist>
